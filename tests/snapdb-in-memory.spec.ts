@@ -1,58 +1,29 @@
-import { MemoryLevel } from "memory-level";
 import { SnapDB } from "../src/snapdb";
 
-describe('Name of the group', () => {
+describe("Name of the group", () => {
   it("should append correctly to the database", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
+    const db = SnapDB.createInMemory();
     const hash = await db.append("John Doe");
-    const data = await db.getAndDecode(hash);
+    const data = await db.get(hash);
     expect(data.value).toEqual("John Doe");
   });
 
   it("it should iterate through all entries without decoding", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
+    const db = SnapDB.createInMemory();
     for (let i = 0; i < 30; i++) {
       await db.append("John Doe");
     }
 
     let index = 0;
     for await (let entry of db.readAll()) {
-      const decoded = await SnapDB.decode(entry);
-      expect(decoded.value).toEqual("John Doe");
-      expect(decoded.index).toEqual(index);
+      expect(entry.value).toEqual("John Doe");
+      expect(entry.index).toEqual(index);
       index++;
     }
   });
 
-  it("it should iterate and decode all entries", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
-    for (let i = 0; i < 30; i++) {
-      await db.append("John Doe");
-    }
-
-    for await (let entry of db.readAllAndDecode()) {
-      expect(entry.value).toEqual("John Doe");
-    }
-  });
-
   it("it should validate if the last hash exists", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
+    const db = SnapDB.createInMemory();
 
     expect(await db.getFirstHash()).toEqual(null);
     expect(await db.getLastHash()).toEqual(null);
@@ -68,40 +39,16 @@ describe('Name of the group', () => {
   });
 
   it("it should read from a specific index until another index", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
+    const db = SnapDB.createInMemory();
     for (let i = 0; i < 30; i++) {
       await db.append("John Doe");
     }
 
     let index = 3;
     for await (let entry of db.readFrom(3, 17)) {
-      const decoded = await SnapDB.decode(entry);
-      expect(decoded.value).toEqual("John Doe");
-      expect(decoded.index).toEqual(index);
-      index++;
-    }
-  });
-
-  it("it should read and decode from a specific index until another index", async () => {
-    const db = new SnapDB(
-      new MemoryLevel({
-        valueEncoding: "buffer",
-      })
-    );
-    for (let i = 0; i < 30; i++) {
-      await db.append("John Doe");
-    }
-
-    let index = 3;
-    for await (let entry of db.readFromAndDecode(3, 17)) {
       expect(entry.value).toEqual("John Doe");
       expect(entry.index).toEqual(index);
       index++;
     }
   });
 });
-

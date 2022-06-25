@@ -1,7 +1,8 @@
-import * as cbor from "cbor";
 import * as crypto from "crypto";
 
-import { AbstractLevel } from 'abstract-level';
+import { AbstractLevel } from "abstract-level";
+import { ClassicLevel } from "classic-level";
+import { MemoryLevel } from "memory-level";
 
 type Entry = {
   hash: string;
@@ -9,9 +10,9 @@ type Entry = {
   value: any;
   previous: string | null;
   next: string | null;
-}
+};
 
-type AbstractDb = AbstractLevel<any, any, any>
+type AbstractDb = AbstractLevel<any, any, any>;
 
 export class SnapDB {
   private db!: AbstractDb;
@@ -21,22 +22,29 @@ export class SnapDB {
    *
    * new SnapDB(new ClassicLevel('./data'))
    */
-  constructor(db: AbstractDb) {
+  private constructor(db: AbstractDb) {
     this.db = db;
   }
 
-  static async encode(data: any) {
-    return cbor.encode(data);
+  static createInMemory() {
+    return new SnapDB(
+      new MemoryLevel({
+        valueEncoding: "json",
+      })
+    );
   }
 
-  static async decode(data: Buffer) {
-    return cbor.decodeFirst(data);
+  static create(path: string) {
+    return new SnapDB(
+      new ClassicLevel(path, {
+        valueEncoding: "json",
+      })
+    );
   }
 
   async getFirstHash(): Promise<any> {
     try {
-      const entry = await this.db.get("firstHash");
-      return SnapDB.decode(entry);
+      return await this.db.get("firstHash");
     } catch (error) {
       return null;
     }
@@ -44,8 +52,7 @@ export class SnapDB {
 
   async getLastHash(): Promise<string | null> {
     try {
-      const entry = await this.db.get("lastHash");
-      return SnapDB.decode(entry);
+      return await this.db.get("lastHash");
     } catch (error) {
       return null;
     }
@@ -58,7 +65,7 @@ export class SnapDB {
       return null;
     }
 
-    const lastEntry = await this.getAndDecode(lastHash);
+    const lastEntry = await this.get(lastHash);
 
     return lastEntry.index;
   }
@@ -70,44 +77,38 @@ export class SnapDB {
     let batch = this.db.batch();
 
     if (!firstHash) {
-      batch = batch.put("firstHash", await SnapDB.encode(hash));
+      batch = batch.put("firstHash", hash);
     }
 
     const lastHash = await this.getLastHash();
 
     if (lastHash) {
-      const lastEntry = await this.getAndDecode(lastHash);
-      batch = batch.put(
-        lastHash,
-        await SnapDB.encode({
-          ...lastEntry,
-          next: hash,
-        })
-      );
+      const lastEntry = await this.get(lastHash);
+      batch = batch.put(lastHash, {
+        ...lastEntry,
+        next: hash,
+      });
     }
 
-    const currentIndex = await this.getCurrentIndex()
-    const index = typeof currentIndex === 'number' ? currentIndex + 1 : 0;
+    const currentIndex = await this.getCurrentIndex();
+    const index = typeof currentIndex === "number" ? currentIndex + 1 : 0;
 
     await batch
-      .put("lastHash", await SnapDB.encode(hash))
-      .put(index.toString(), await SnapDB.encode(hash))
-      .put(
+      .put("lastHash", hash)
+      .put(index.toString(), hash)
+      .put(hash, {
         hash,
-        await SnapDB.encode({
-          hash,
-          index,
-          value,
-          previous: lastHash,
-          next: null,
-        })
-      )
+        index,
+        value,
+        previous: lastHash,
+        next: null,
+      })
       .write();
 
     return hash;
   }
 
-  async get(hash: string): Promise<Buffer> {
+  async get(hash: string): Promise<Entry> {
     return this.db.get(hash);
   }
 
@@ -120,13 +121,9 @@ export class SnapDB {
     }
   }
 
-  async getAndDecode(hash: string): Promise<Entry> {
-    return SnapDB.decode(await this.get(hash));
-  }
-
   async *readFrom(start: number, finish: number) {
-    const pointer = await SnapDB.decode(await this.get(start.toString()));
-    const entry = await this.getAndDecode(pointer);
+    const pointer = await this.get(start.toString());
+    const entry = await this.db.get(pointer);
 
     let next = entry.hash;
 
@@ -134,7 +131,7 @@ export class SnapDB {
       const entry = await this.get(next);
       yield entry;
 
-      const parsedEntry = await SnapDB.decode(entry);
+      const parsedEntry = entry;
       next = parsedEntry.next;
       if (parsedEntry.index >= finish) {
         break;
@@ -142,25 +139,13 @@ export class SnapDB {
     }
   }
 
-  async *readFromAndDecode(start: number, finish: number) {
-    for await (let entry of this.readFrom(start, finish)) {
-      yield SnapDB.decode(entry);
-    }
-  }
-
   async *readAll() {
     let next = await this.getFirstHash();
     while (next !== null) {
       const entry = await this.get(next);
-      next = (await SnapDB.decode(entry)).next;
+      next = entry.next;
 
       yield entry;
-    }
-  }
-
-  async *readAllAndDecode() {
-    for await (let entry of this.readAll()) {
-      yield SnapDB.decode(entry);
     }
   }
 
